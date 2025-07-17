@@ -4,8 +4,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"go-jwt-mysql/utils"
+
+	"github.com/gin-gonic/gin"
 )
 
 func AuthMiddleware() gin.HandlerFunc {
@@ -17,8 +18,8 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		userID,userName, err := utils.VerifyToken(tokenString)
+		tokenString := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		userID, userName, userRole, err := utils.VerifyToken(tokenString)
 		if err != nil {
 			utils.RespondWithError(c, http.StatusUnauthorized, "Invalid token")
 			c.Abort()
@@ -26,7 +27,8 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		c.Set("userID", userID)
-		c.Set("username",userName)
+		c.Set("userName", userName)
+		c.Set("userRole", userRole)
 		c.Next()
 	}
 }

@@ -8,41 +8,57 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// GenerateToken creates a JWT token with username and user_id
-func GenerateToken(username string, id int) (string, error) {
-
-	// Payload (claims) for the JWT token
-	claims := jwt.MapClaims{
-		"username": username,
-		"user_id":  1,
-		"exp":      time.Now().Add(time.Hour * 1).Unix(),
-	}
-
-	// Create the token with claims and sign it
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+// GenerateToken creates a JWT token with username, user_id, and role
+func GenerateToken(username string, userID int, role string) (string, error) {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		return "", errors.New("JWT_SECRET is not set")
+		return "", errors.New("JWT_SECRET is not set in environment variables")
 	}
 
-	return token.SignedString([]byte(secret))
+	claims := jwt.MapClaims{
+		"user_id":  userID,
+		"username": username,
+		"role":     role,
+		"exp":      time.Now().Add(time.Hour * 24).Unix(),
+	}
 
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secret))
 }
 
-func VerifyToken(tokenString string) (int, string, error) {
+// VerifyToken parses and validates JWT, returning ID, username, and role
+func VerifyToken(tokenString string) (int, string, string, error) {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return 0, "", "", errors.New("JWT_SECRET is not set")
+	}
+
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return []byte(os.Getenv("JWT_SECRET")), nil
+		// Check signing method
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+		return []byte(secret), nil
 	})
-	if err != nil {
-		return 0, "", err
+
+	if err != nil || !token.Valid {
+		return 0, "", "", errors.New("invalid token")
 	}
 
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		userID := int(claims["user_id"].(float64))
-		userName := claims["username"].(string)
-
-		return userID, userName, nil
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return 0, "", "", errors.New("invalid claims format")
 	}
 
-	return 0, "", err
+	// Extract and cast user ID
+	userIDFloat, ok := claims["user_id"].(float64)
+	if !ok {
+		return 0, "", "", errors.New("user_id not found or invalid")
+	}
+	userID := int(userIDFloat)
+
+	username, _ := claims["username"].(string)
+	role, _ := claims["role"].(string)
+
+	return userID, username, role, nil
 }

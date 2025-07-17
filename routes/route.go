@@ -10,7 +10,7 @@ import (
 
 func SetupRoutes() *gin.Engine {
 	router := gin.Default()
-	  router.Use(cors.Default()) 
+	router.Use(cors.Default())
 
 	authController := controllers.AuthController{}
 	userController := controllers.UserController{}
@@ -22,14 +22,24 @@ func SetupRoutes() *gin.Engine {
 		auth.POST("/login", authController.Login)
 	}
 
-	// User routes (protected)
+	// Protected routes
 	api := router.Group("/api")
 	api.Use(middlewares.AuthMiddleware())
 	{
-		api.GET("/users", userController.GetUsers)
-		api.GET("/users/me", userController.GetUser)
-		api.PUT("/users/me", userController.UpdateUser)
-		api.DELETE("/users/me", userController.DeleteUser)
+		// Current user operations
+		api.GET("/users/me", userController.GetCurrentUser)
+		api.PUT("/users/me", userController.UpdateCurrentUser)
+		api.DELETE("/users/me", userController.DeleteCurrentUser)
+
+		// Admin-only operations
+		admin := api.Group("/admin")
+		admin.Use(middlewares.AdminMiddleware())
+		{
+			admin.GET("/users", userController.GetAllUsers)
+			admin.GET("/users/:id", userController.GetUserByID)
+			admin.PUT("/users/:id", userController.UpdateUser)
+			admin.DELETE("/users/:id", userController.DeleteUser)
+		}
 	}
 
 	return router

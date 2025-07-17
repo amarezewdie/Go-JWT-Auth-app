@@ -2,6 +2,8 @@ package models
 
 import (
 	"database/sql"
+	"fmt"
+	"os"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -12,9 +14,24 @@ type User struct {
 	ID        int       `json:"id"`
 	Name      string    `json:"name"`
 	Email     string    `json:"email"`
-	Password  string    `json:"-"` // hide password in JSON response
+	Password  string    `json:"-"`
+	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// get user with role
+func GetUserWithRole(db *sql.DB, id int) (*User, error) {
+	query := `SELECT id, name, email, role, created_at, updated_at FROM users WHERE id = ?`
+	row := db.QueryRow(query, id)
+
+	user := &User{}
+	err := row.Scan(&user.ID, &user.Name, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -46,23 +63,22 @@ func CreateUser(db *sql.DB, user *User) error {
 	user.UpdatedAt = time.Now()
 
 	if err := user.HashPassword(); err != nil {
-		return err
+		return fmt.Errorf("hash password failed: %w", err)
 	}
 
 	query := `
-		INSERT INTO users (name, email, password, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO users (name, email, password, role, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`
 
-	result, err := db.Exec(query, user.Name, user.Email, user.Password, user.CreatedAt, user.UpdatedAt)
+	result, err := db.Exec(query, user.Name, user.Email, user.Password, user.Role, user.CreatedAt, user.UpdatedAt)
 	if err != nil {
-		return err
+		return fmt.Errorf("insert user failed: %w", err)
 	}
 
-	// Capture the auto-incremented ID from the DB
 	id, err := result.LastInsertId()
 	if err != nil {
-		return err
+		return fmt.Errorf("getting last inserted id failed: %w", err)
 	}
 	user.ID = int(id)
 	return nil
@@ -75,7 +91,7 @@ func CreateUser(db *sql.DB, user *User) error {
 // GetUserByEmail retrieves a user from DB using their email
 func GetUserByEmail(db *sql.DB, email string) (*User, error) {
 	query := `
-		SELECT id, name, email, password, created_at, updated_at
+		SELECT id, name, email, password, role, created_at, updated_at
 		FROM users
 		WHERE email = ?
 	`
@@ -84,8 +100,13 @@ func GetUserByEmail(db *sql.DB, email string) (*User, error) {
 
 	user := &User{}
 	err := row.Scan(
-		&user.ID, &user.Name, &user.Email, &user.Password,
-		&user.CreatedAt, &user.UpdatedAt,
+		&user.ID,
+		&user.Name,
+		&user.Email,
+		&user.Password,
+		&user.Role,
+		&user.CreatedAt,
+		&user.UpdatedAt,
 	)
 
 	if err != nil {
@@ -97,17 +118,16 @@ func GetUserByEmail(db *sql.DB, email string) (*User, error) {
 // GetUserByID retrieves a user from DB using their ID
 func GetUserByID(db *sql.DB, id int) (*User, error) {
 	query := `
-		SELECT id, name, email, created_at, updated_at
+		SELECT id, name, email, role, created_at, updated_at
 		FROM users
 		WHERE id = ?
 	`
-
 	row := db.QueryRow(query, id)
 
 	user := &User{}
-	err := row.Scan(&user.ID, &user.Name, &user.Email, &user.CreatedAt, &user.UpdatedAt)
+	err := row.Scan(&user.ID, &user.Name, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get user by ID failed: %w", err)
 	}
 	return user, nil
 }
@@ -115,13 +135,12 @@ func GetUserByID(db *sql.DB, id int) (*User, error) {
 // GetAllUsers returns all users from the database
 func GetAllUsers(db *sql.DB) ([]User, error) {
 	query := `
-		SELECT id, name, email, created_at, updated_at
+		SELECT id, name, email, role, created_at, updated_at
 		FROM users
 	`
-
 	rows, err := db.Query(query)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get all users query failed: %w", err)
 	}
 	defer rows.Close()
 
@@ -129,9 +148,9 @@ func GetAllUsers(db *sql.DB) ([]User, error) {
 
 	for rows.Next() {
 		var user User
-		err := rows.Scan(&user.ID, &user.Name, &user.Email, &user.CreatedAt, &user.UpdatedAt)
+		err := rows.Scan(&user.ID, &user.Name, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("row scan failed: %w", err)
 		}
 		users = append(users, user)
 	}
@@ -166,4 +185,46 @@ func DeleteUser(db *sql.DB, id int) error {
 	query := `DELETE FROM users WHERE id = ?`
 	_, err := db.Exec(query, id)
 	return err
+}
+
+// InitAdminUser inserts the default admin into the database if not already present
+func InitAdminUser(db *sql.DB) error {
+	adminEmail := os.Getenv("ADMIN_EMAIL")
+	adminPassword := os.Getenv("ADMIN_PASSWORD")
+	adminName := os.Getenv("ADMIN_NAME")
+
+	if adminEmail == "" || adminPassword == "" || adminName == "" {
+		return fmt.Errorf("admin credentials are missing in environment variables")
+	}
+
+	// Check if admin already exists
+	existingUser, err := GetUserByEmail(db, adminEmail)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to check for existing admin: %w", err)
+	}
+	if existingUser != nil {
+		fmt.Println("✅ Admin already exists:", existingUser.Email)
+		return nil // already created
+	}
+
+	// Create new admin user
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hashing admin password failed: %w", err)
+	}
+
+	now := time.Now()
+
+	query := `
+		INSERT INTO users (name, email, password, role, created_at, updated_at)
+		VALUES (?, ?, ?, 'admin', ?, ?)
+	`
+
+	_, err = db.Exec(query, adminName, adminEmail, hashedPassword, now, now)
+	if err != nil {
+		return fmt.Errorf("failed to insert admin user: %w", err)
+	}
+
+	fmt.Println("🎉 Admin user created:", adminEmail)
+	return nil
 }

@@ -12,6 +12,7 @@ import (
 
 var DB *sql.DB
 
+// Connect to the database
 func ConnectDB() {
 	err := godotenv.Load()
 	if err != nil {
@@ -24,20 +25,37 @@ func ConnectDB() {
 	dbPort := os.Getenv("DB_PORT")
 	dbName := os.Getenv("DB_NAME")
 
-	//conection string for mysql database
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true", dbUser, dbPass, dbHost, dbPort, dbName)
 
-	// Open a database connection
 	DB, err = sql.Open("mysql", dsn)
 	if err != nil {
-		log.Fatal("Failed to connect to database:", err)
+		log.Fatal("❌ Failed to connect to database:", err)
 	}
 
-	// Check the connection with Ping
 	if err := DB.Ping(); err != nil {
-		log.Fatal("Failed to ping database:", err)
+		log.Fatal("❌ Failed to ping database:", err)
 	}
 
-	fmt.Println("Connected to MySQL database")
+	fmt.Println("✅ Connected to MySQL database")
+}
 
+// Create the users table if it doesn't exist
+func CreateUserTable() {
+	query := `
+	CREATE TABLE IF NOT EXISTS users (
+		id INT AUTO_INCREMENT PRIMARY KEY,
+		name VARCHAR(100) NOT NULL,
+		email VARCHAR(100) NOT NULL UNIQUE,
+		password VARCHAR(255) NOT NULL,
+		role VARCHAR(50) NOT NULL DEFAULT 'user',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+	);`
+
+	_, err := DB.Exec(query)
+	if err != nil {
+		log.Fatal("❌ Failed to create users table:", err)
+	}
+
+	fmt.Println("✅ Users table created or already exists")
 }
