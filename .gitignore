@@ -1,0 +1,19 @@
+# Ignore environment files
+.env
+
+# IDE/editor files
+.vscode/
+*.swp
+
+# OS files
+.DS_Store
+
+# Dependency folders
+node_modules/
+vendor/
+
+# Binaries or compiled files
+*.exe
+*.out
+*.class
+".env" 
